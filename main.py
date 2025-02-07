@@ -262,7 +262,7 @@ async def handle_txt_upload(bot: Client, m: Message, user_id: int):
 
             if "jw-prod" in url:
 
-                cmd f'yt-dlpo "{name}.mp4" "{url}""
+                cmd = f'yt-dlpo "{name}.mp4" "{url}"'
 
                 
 
