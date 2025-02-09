@@ -1,65 +1,72 @@
 import os
-import subprocess
-import requests
-import re
-from pyrogram import Client, filters
+import random
+import string
+import m3u8
+from datetime import datetime
 
-# बॉट के लिए क्रेडेंशियल्स
-API_ID = "YOUR_API_ID"
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-
-bot = Client("M3U8DownloaderBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# M3U8 डाउनलोड और प्रोसेस करने का फ़ंक्शन
-def download_m3u8_video(m3u8_url, output_file="output.mp4"):
+# 🎯 .txt फ़ाइल से इनपुट लेने का फ़ंक्शन
+def read_input_from_file(filename):
     try:
-        # .m3u8 फाइल डाउनलोड करें
-        m3u8_file = "video.m3u8"
-        subprocess.run(["wget", "-O", m3u8_file, m3u8_url])
-
-        # M3U8 फाइल से .ts URLs निकालें
-        with open(m3u8_file, "r") as f:
-            lines = f.readlines()
-
-        ts_urls = [line.strip() for line in lines if line.strip().endswith(".ts")]
-        base_url = "/".join(m3u8_url.split("/")[:-1]) + "/"
-
-        # सभी .ts फाइलें डाउनलोड करें
-        for i, ts_file in enumerate(ts_urls):
-            ts_url = base_url + ts_file
-            subprocess.run(["wget", "-O", f"part_{i}.ts", ts_url])
-
-        # सभी .ts फाइलों को मर्ज करें
-        with open("file_list.txt", "w") as f:
-            for i in range(len(ts_urls)):
-                f.write(f"file 'part_{i}.ts'\n")
-
-        subprocess.run(["ffmpeg", "-f", "concat", "-safe", "0", "-i", "file_list.txt", "-c", "copy", output_file])
-
-        return output_file
-
+        with open(filename, "r") as file:
+            lines = file.read().strip().split("\n")
+            video_link = lines[0]
+            audio_link = lines[1] if len(lines) > 1 else None
+            encryption_key = lines[2] if len(lines) > 2 else None
+            return video_link, audio_link, encryption_key
     except Exception as e:
-        return f"Error: {str(e)}"
+        print(f"❌ Error reading file: {e}")
+        return None, None, None
 
-# टेलीग्राम कमांड हैंडलर
-@bot.on_message(filters.command("download") & filters.text)
-def fetch_video(client, message):
-    m3u8_url = message.text.split(" ", 1)[-1]
+# 🎯 यूज़र से इनपुट लें (या .txt फ़ाइल से)
+file_input = input("📄 Enter .txt file path (or press Enter to enter manually): ").strip()
+if file_input:
+    video_link, audio_link, encryption_key = read_input_from_file(file_input)
+else:
+    video_link = input("🎥 Enter M3U8 video link: ").strip()
+    audio_link = input("🎵 Enter M3U8 audio link (if available): ").strip()
+    encryption_key = input("🔑 Enter the decryption key: ").strip()
+
+current_time = datetime.now().strftime("%H%M%S")
+video_iv = ""
+
+# 📌 M3U8 से TS फाइलें डाउनलोड करने का फ़ंक्शन
+def download_ts_files(link, is_audio):
+    global video_iv
+    playlist = m3u8.load(link)
+    ts_len = len(playlist.segments)
     
-    if not m3u8_url.startswith("http"):
-        message.reply("कृपया एक वैध M3U8 URL दें।")
-        return
+    root_video_link = "/".join(link.split("/")[:-1])+"/"
+    ts_filename = f"{current_time}.ts" if not is_audio else f"{current_time}_audio.ts"
+    
+    for i in range(ts_len):
+        segment_info = str(playlist.segments[i]).split(",")
+        video_iv = segment_info[2].replace("IV=0x", "").split("\n")[0]
+        ts_file = segment_info[3].replace("\n", "")
 
-    message.reply("वीडियो डाउनलोड हो रहा है, कृपया इंतजार करें...")
+        os.system(f"wget {root_video_link}{ts_file} -O ->> {ts_filename}")
 
-    output_file = download_m3u8_video(m3u8_url)
+# 📌 TS फाइल डिक्रिप्ट करने का फ़ंक्शन
+def decrypt_ts(filename, is_audio):
+    decrypted_filename = "decrypted.mkv" if not is_audio else "decrypted.aac"
+    os.system(f"openssl enc -aes-128-cbc -nosalt -d -in {filename}.ts -K '{encryption_key}' -iv '{video_iv}' > {decrypted_filename}")
 
-    if os.path.exists(output_file):
-        message.reply_video(output_file, caption="आपका वीडियो तैयार है 🎥")
-        os.remove(output_file)  # Cleanup
-    else:
-        message.reply("डाउनलोड या प्रोसेसिंग में समस्या आई।")
+# 📌 वीडियो और ऑडियो को मर्ज करने का फ़ंक्शन
+def merge_audio_video():
+    output_filename = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6)) + ".mp4"
+    os.system(f"ffmpeg -i decrypted.mkv -i decrypted.aac -c copy {output_filename}")
+    
+    # क्लीनअप (अनावश्यक फाइलें हटाएं)
+    os.system(f"rm decrypted.mkv decrypted.aac {current_time}.ts {current_time}_audio.ts")
+    print(f"✅ वीडियो सेव हो गया: {output_filename}")
 
-# बॉट रन करें
-bot.run()
+# 📌 पूरा प्रोसेस रन करना
+if video_link and encryption_key:
+    download_ts_files(video_link, False)
+    decrypt_ts(current_time, False)
+
+if audio_link:
+    download_ts_files(audio_link, True)
+    decrypt_ts(current_time+"_audio", True)
+    merge_audio_video()
+else:
+    print("🎥 Video downloaded without audio!")
