@@ -9,6 +9,28 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait
 
+import os
+import re
+import sys
+import json
+import time
+import asyncio
+import requests
+import subprocess
+
+import core as helper
+from utils import progress_bar
+from vars import API_ID, API_HASH, BOT_TOKEN
+from aiohttp import ClientSession
+from pyromod import listen
+from subprocess import getstatusoutput
+
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from pyrogram.errors import FloodWait
+from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
+from pyrogram.types.messages_and_media import message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 bot = Client(
     "bot",
     api_id=API_ID,
